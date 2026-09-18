@@ -6,8 +6,11 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -120,8 +123,20 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-// Hijack lets the websocket upgrade through the logging wrapper.
 func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
+// Hijack lets the websocket upgrade through the logging wrapper.
+//
+// gorilla/websocket type-asserts the ResponseWriter to http.Hijacker directly
+// rather than going through http.ResponseController, so Unwrap alone is not
+// enough and every upgrade would fail with a 500.
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("api: %T does not support hijacking", r.ResponseWriter)
+	}
+	return hijacker.Hijack()
+}
 
 // ErrorResponse is the shape of every error this API returns.
 type ErrorResponse struct {
