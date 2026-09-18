@@ -18,8 +18,10 @@ import (
 	"github.com/khangpt2k6/dex-aggregator/internal/cache"
 	"github.com/khangpt2k6/dex-aggregator/internal/config"
 	"github.com/khangpt2k6/dex-aggregator/internal/dex"
+	"github.com/khangpt2k6/dex-aggregator/internal/dex/onchain"
 	"github.com/khangpt2k6/dex-aggregator/internal/dex/sim"
 	"github.com/khangpt2k6/dex-aggregator/internal/indexer"
+	"github.com/khangpt2k6/dex-aggregator/internal/rpc"
 )
 
 // shutdownGrace is how long in-flight requests get to finish on shutdown.
@@ -135,11 +137,32 @@ func buildSources(cfg *config.Config, log *slog.Logger) ([]dex.PoolSource, error
 		return []dex.PoolSource{sim.New(cfg.SimSeed)}, nil
 	}
 
-	// Live on-chain sources are wired in a follow-up change; until then a
-	// configured RPC URL runs against simulated data rather than silently
-	// serving nothing.
-	log.Warn("ETH_RPC_URL is set but on-chain sources are not wired yet, falling back to simulated pools")
-	return []dex.PoolSource{sim.New(cfg.SimSeed)}, nil
+	transport := rpc.NewHTTPTransport(cfg.ETHRPCURL, 15*time.Second)
+
+	pool := rpc.NewPool(transport, rpc.PoolConfig{
+		Workers:          cfg.RPCWorkers,
+		RatePerSec:       cfg.RPCRatePerSec,
+		Burst:            cfg.RPCBurst,
+		MaxRetries:       3,
+		BaseBackoff:      200 * time.Millisecond,
+		BreakerThreshold: 5,
+		BreakerCooldown:  15 * time.Second,
+	})
+
+	mc := rpc.NewMulticaller(pool, rpc.Multicall3Address, 100)
+	tokens := dex.Tokens()
+
+	log.Info("reading live mainnet pools",
+		"workers", cfg.RPCWorkers,
+		"ratePerSec", cfg.RPCRatePerSec,
+		"tokens", len(tokens),
+		"feeTiers", onchain.DefaultV3FeeTiers,
+	)
+
+	return []dex.PoolSource{
+		onchain.NewUniswapV3(mc, tokens, onchain.DefaultV3FeeTiers),
+		onchain.NewSushiswapV2(mc, tokens),
+	}, nil
 }
 
 // openStore connects to Redis if configured, and degrades to no persistence if
