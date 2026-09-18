@@ -1,0 +1,16 @@
+# Authored on Windows, built in Linux containers and CI. Tabs in a Makefile
+# and shebangs in shell scripts do not survive CRLF, so normalise everything
+# text to LF in the repository.
+* text=auto eol=lf
+
+Makefile text eol=lf
+*.sh text eol=lf
+*.go text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
