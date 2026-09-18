@@ -324,3 +324,75 @@ func TestFindBestRouteDoesNotMutateSnapshot(t *testing.T) {
 		}
 	}
 }
+
+// Regression: the simulator produced a graph with a profitable loop, and the
+// router folded that loop into an ordinary swap quote, returning
+// WETH -> WBTC -> WETH -> WBTC and using the same pool twice.
+//
+// That quote is not executable. Every hop is priced against one snapshot, so
+// the second pass through a pool would actually meet the price the first pass
+// just moved. A swap route has to be a simple path; profitable loops belong to
+// FindArbitrage, which looks for them deliberately.
+func TestRouteNeverReusesAPoolOrRevisitsAToken(t *testing.T) {
+	// DAI is deliberately mispriced against USDC so a WETH/USDC/DAI loop pays
+	// more than it costs, which is what tempted the router before.
+	s := BuildSnapshot([]dex.Pool{
+		v2("wethusdc", tWETH, tUSDC, 1000, 2_000_000),
+		v2("wethdai", tWETH, tDAI, 1000, 2_000_000),
+		v2("daiusdc", tDAI, tUSDC, 5_000_000, 5_750_000),
+		v2("usdcwbtc", tUSDC, tWBTC, 4_000_000, 100),
+	}, time.Now())
+
+	// Confirm the premise: a profitable loop really is present in this graph,
+	// so the test would catch a regression rather than passing vacuously.
+	probe := map[string]*big.Int{tWETH.Address: whole(1, tWETH)}
+	if len(FindArbitrage(s, probe, 4)) == 0 {
+		t.Fatal("premise broken: this graph has no arbitrage loop to tempt the router")
+	}
+
+	for _, maxHops := range []int{2, 3, 4, 5} {
+		r, err := FindBestRoute(s, tWETH.Address, tWBTC.Address, whole(1, tWETH), maxHops)
+		if err != nil {
+			t.Fatalf("maxHops=%d: %v", maxHops, err)
+		}
+
+		seenPool := map[string]bool{}
+		for _, h := range r.Hops {
+			if seenPool[h.PoolAddress] {
+				t.Errorf("maxHops=%d: route %v uses pool %s twice, which cannot be priced from one snapshot",
+					maxHops, routeSymbols(r), h.PoolAddress)
+			}
+			seenPool[h.PoolAddress] = true
+		}
+
+		seenToken := map[string]bool{}
+		for _, sym := range routeSymbols(r) {
+			if seenToken[sym] {
+				t.Errorf("maxHops=%d: route %v revisits %s", maxHops, routeSymbols(r), sym)
+			}
+			seenToken[sym] = true
+		}
+
+		if !strings.EqualFold(r.Hops[len(r.Hops)-1].TokenOut, tWBTC.Address) {
+			t.Errorf("maxHops=%d: route %v does not end at WBTC", maxHops, routeSymbols(r))
+		}
+	}
+}
+
+// A route must never start by selling something back into the token it came
+// from, and must never end where it started.
+func TestRouteNeverReturnsToTheInputToken(t *testing.T) {
+	s := BuildSnapshot([]dex.Pool{
+		v2("wethusdc", tWETH, tUSDC, 1000, 2_000_000),
+		v2("wethdai", tWETH, tDAI, 1000, 2_000_000),
+		v2("daiusdc", tDAI, tUSDC, 5_000_000, 5_750_000),
+	}, time.Now())
+
+	r := mustRoute(t, s, tWETH, tUSDC, whole(1, tWETH), 4)
+
+	for i, h := range r.Hops {
+		if i > 0 && strings.EqualFold(h.TokenOut, tWETH.Address) {
+			t.Errorf("route %v returns to the input token at hop %d", routeSymbols(r), i)
+		}
+	}
+}

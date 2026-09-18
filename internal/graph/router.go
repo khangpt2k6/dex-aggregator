@@ -103,7 +103,7 @@ func FindBestRoute(s *Snapshot, tokenIn, tokenOut string, amountIn *big.Int, max
 		return nil, fmt.Errorf("%w: tokenIn and tokenOut are the same", ErrBadRequest)
 	}
 
-	table := s.relax(src, amountIn, maxHops)
+	table := s.relax(src, amountIn, maxHops, simplePaths)
 
 	bestRound, ok := table.bestRoundFor(dst)
 	if !ok {
@@ -133,6 +133,41 @@ type relaxTable struct {
 	rounds int
 }
 
+// mayVisit reports whether extending the path that reached token `from` in
+// `hops` hops is allowed to land on `next`.
+//
+// It walks the predecessor chain, which is at most maxHops long, so the check
+// costs a handful of integer comparisons per candidate edge.
+//
+// Keeping only the best amount per (hops, token) means a path is occasionally
+// discarded whose continuation would have been better once the revisit rule is
+// applied. Routes are at most a few hops and the discarded case needs the
+// excluded token to matter downstream, so the loss is negligible in practice
+// and buys a search that stays inside the latency budget. Enumerating simple
+// paths outright is exponential in hop count.
+func (t *relaxTable) mayVisit(hops, from, next, src int, mode relaxMode) bool {
+	if mode == closedLoops && next == src {
+		// Closing the loop is the goal, not a violation.
+		return true
+	}
+	if next == src {
+		return false
+	}
+	if next == from {
+		return false
+	}
+
+	// Walk back through the tokens this path already used.
+	token := from
+	for k := hops; k >= 1; k-- {
+		if token == next {
+			return false
+		}
+		token = t.from[k][token].from
+	}
+	return token != next
+}
+
 func (t *relaxTable) bestRoundFor(token int) (int, bool) {
 	best := -1
 	for k := 1; k <= t.rounds; k++ {
@@ -146,8 +181,28 @@ func (t *relaxTable) bestRoundFor(token int) (int, bool) {
 	return best, best != -1
 }
 
+// relaxMode controls whether a path may return to a token it already visited.
+type relaxMode int
+
+const (
+	// simplePaths forbids revisiting any token. This is what a swap route
+	// needs.
+	//
+	// Every hop is priced against the same snapshot, which assumes each pool
+	// is at the state we indexed. A route that touches the same pool twice
+	// breaks that assumption: the second pass would meet the price the first
+	// pass just moved, so the quote would be unexecutable. Forbidding repeated
+	// tokens rules that out, since a pool cannot be reused without revisiting
+	// one of its two tokens.
+	simplePaths relaxMode = iota
+
+	// closedLoops additionally allows returning to the starting token, which
+	// is the entire point when looking for arbitrage.
+	closedLoops
+)
+
 // relax runs the hop-indexed Bellman-Ford relaxation.
-func (s *Snapshot) relax(src int, amountIn *big.Int, maxHops int) *relaxTable {
+func (s *Snapshot) relax(src int, amountIn *big.Int, maxHops int, mode relaxMode) *relaxTable {
 	n := len(s.tokens)
 
 	t := &relaxTable{
@@ -186,6 +241,9 @@ func (s *Snapshot) relax(src int, amountIn *big.Int, maxHops int) *relaxTable {
 					continue
 				}
 				if out.Sign() <= 0 {
+					continue
+				}
+				if !t.mayVisit(k-1, i, e.to, src, mode) {
 					continue
 				}
 				// out points into the workspace, so compare before copying.

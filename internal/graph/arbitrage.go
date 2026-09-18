@@ -61,7 +61,7 @@ func FindArbitrage(s *Snapshot, probe map[string]*big.Int, maxHops int) []Cycle 
 			continue
 		}
 
-		table := s.relax(src, amount, maxHops)
+		table := s.relax(src, amount, maxHops, closedLoops)
 
 		for k := 2; k <= maxHops; k++ {
 			if !table.seen[k][src] {
