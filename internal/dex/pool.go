@@ -102,6 +102,20 @@ func (p *Pool) OtherToken(address string) (Token, bool) {
 // Pool state is never mutated, so a single snapshot is safe to quote against
 // from many goroutines at once.
 func (p *Pool) AmountOut(amountIn *big.Int, tokenIn string) (*big.Int, error) {
+	out, err := p.AmountOutInto(amm.NewScratch(), amountIn, tokenIn)
+	if err != nil {
+		return nil, err
+	}
+	return new(big.Int).Set(out), nil
+}
+
+// AmountOutInto is AmountOut using sc for intermediate values.
+//
+// The RETURNED VALUE is owned by sc and is overwritten by the next call using
+// the same Scratch. Callers that keep the result must copy it. The router does
+// exactly that, and only for the amounts that actually win, which is what
+// keeps a routing query from generating hundreds of kilobytes of garbage.
+func (p *Pool) AmountOutInto(sc *amm.Scratch, amountIn *big.Int, tokenIn string) (*big.Int, error) {
 	zeroForOne, err := p.direction(tokenIn)
 	if err != nil {
 		return nil, err
@@ -109,9 +123,9 @@ func (p *Pool) AmountOut(amountIn *big.Int, tokenIn string) (*big.Int, error) {
 
 	switch p.Protocol {
 	case SushiswapV2:
-		return p.amountOutV2(amountIn, zeroForOne)
+		return p.amountOutV2(sc, amountIn, zeroForOne)
 	case UniswapV3:
-		return p.amountOutV3(amountIn, zeroForOne)
+		return p.amountOutV3(sc, amountIn, zeroForOne)
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnknownProtocol, p.Protocol)
 	}
@@ -129,7 +143,7 @@ func (p *Pool) direction(tokenIn string) (bool, error) {
 	}
 }
 
-func (p *Pool) amountOutV2(amountIn *big.Int, zeroForOne bool) (*big.Int, error) {
+func (p *Pool) amountOutV2(sc *amm.Scratch, amountIn *big.Int, zeroForOne bool) (*big.Int, error) {
 	if p.Reserve0 == nil || p.Reserve1 == nil {
 		return nil, fmt.Errorf("%w: pool %s has no reserves", ErrPoolStateMissing, p.Address)
 	}
@@ -140,15 +154,15 @@ func (p *Pool) amountOutV2(amountIn *big.Int, zeroForOne bool) (*big.Int, error)
 	} else {
 		oriented.ReserveIn, oriented.ReserveOut = p.Reserve1, p.Reserve0
 	}
-	return amm.SwapV2(amountIn, oriented)
+	return amm.SwapV2Into(sc, amountIn, oriented)
 }
 
-func (p *Pool) amountOutV3(amountIn *big.Int, zeroForOne bool) (*big.Int, error) {
+func (p *Pool) amountOutV3(sc *amm.Scratch, amountIn *big.Int, zeroForOne bool) (*big.Int, error) {
 	if p.SqrtPriceX96 == nil || p.Liquidity == nil {
 		return nil, fmt.Errorf("%w: pool %s has no slot0", ErrPoolStateMissing, p.Address)
 	}
 
-	return amm.SwapV3(amountIn, amm.V3Pool{
+	return amm.SwapV3Into(sc, amountIn, amm.V3Pool{
 		SqrtPriceX96: p.SqrtPriceX96,
 		Liquidity:    p.Liquidity,
 		Tick:         p.Tick,

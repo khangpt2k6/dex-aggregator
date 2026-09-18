@@ -33,6 +33,18 @@ type V2Pool struct {
 //
 // Inputs are never mutated.
 func SwapV2(in *big.Int, p V2Pool) (*big.Int, error) {
+	out, err := SwapV2Into(NewScratch(), in, p)
+	if err != nil {
+		return nil, err
+	}
+	return new(big.Int).Set(out), nil
+}
+
+// SwapV2Into is SwapV2 using sc for intermediate values.
+//
+// The RETURNED VALUE is owned by sc and is overwritten by the next call using
+// the same Scratch. Copy it if you need to keep it.
+func SwapV2Into(sc *Scratch, in *big.Int, p V2Pool) (*big.Int, error) {
 	if !isPositive(in) {
 		return nil, ErrZeroAmount
 	}
@@ -43,16 +55,18 @@ func SwapV2(in *big.Int, p V2Pool) (*big.Int, error) {
 		return nil, ErrInsufficientLiquidity
 	}
 
-	feeMultiplier := big.NewInt(int64(bpsDenominator - p.FeeBps))
+	// inAfterFee = in * (10000 - feeBps)
+	sc.v2a.Mul(in, big.NewInt(int64(bpsDenominator-p.FeeBps)))
 
-	inAfterFee := new(big.Int).Mul(in, feeMultiplier)
+	// denominator = reserveIn * 10000 + inAfterFee
+	sc.v2b.Mul(p.ReserveIn, big.NewInt(bpsDenominator))
+	sc.v2b.Add(sc.v2b, sc.v2a)
 
-	numerator := new(big.Int).Mul(inAfterFee, p.ReserveOut)
+	// out = inAfterFee * reserveOut / denominator
+	sc.out.Mul(sc.v2a, p.ReserveOut)
+	sc.out.Div(sc.out, sc.v2b)
 
-	denominator := new(big.Int).Mul(p.ReserveIn, big.NewInt(bpsDenominator))
-	denominator.Add(denominator, inAfterFee)
-
-	return numerator.Div(numerator, denominator), nil
+	return sc.out, nil
 }
 
 // SpotPriceV2 returns the marginal exchange rate at zero trade size, scaled by

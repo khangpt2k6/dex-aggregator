@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/khangpt2k6/dex-aggregator/internal/amm"
 	"github.com/khangpt2k6/dex-aggregator/internal/dex"
 )
 
@@ -62,6 +63,9 @@ func BuildSnapshot(pools []dex.Pool, at time.Time) *Snapshot {
 		if !usable(&p) {
 			continue
 		}
+		if !prepare(&p) {
+			continue
+		}
 
 		s.pools = append(s.pools, p)
 		poolIdx := len(s.pools) - 1
@@ -96,6 +100,29 @@ func usable(p *dex.Pool) bool {
 }
 
 func positive(n *big.Int) bool { return n != nil && n.Sign() > 0 }
+
+// prepare does the per-pool setup that would otherwise be repeated on every
+// quote, and reports whether the pool is still usable afterwards.
+//
+// The router asks a V3 pool for a quote on every relaxation round of every
+// request. Sorting its ticks and deriving their sqrt ratios there would mean
+// doing identical work thousands of times per second for state that only
+// changes once per refresh. Doing it here moves that cost off the hot path
+// entirely, which is most of what buys the latency budget.
+func prepare(p *dex.Pool) bool {
+	if p.Protocol != dex.UniswapV3 {
+		return true
+	}
+
+	ticks, err := amm.PrepareTicks(p.Ticks)
+	if err != nil {
+		// A tick outside protocol bounds means the pool state is corrupt.
+		// Dropping it is better than letting it fail every quote.
+		return false
+	}
+	p.Ticks = ticks
+	return true
+}
 
 // intern returns the index of a token, adding it to the graph if new.
 func (s *Snapshot) intern(t dex.Token) int {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/khangpt2k6/dex-aggregator/internal/amm"
 	"github.com/khangpt2k6/dex-aggregator/internal/dex"
 )
 
@@ -164,6 +165,11 @@ func (s *Snapshot) relax(src int, amountIn *big.Int, maxHops int) *relaxTable {
 	t.amount[0][src] = amountIn
 	t.seen[0][src] = true
 
+	// One workspace for the whole query. Every candidate swap below reuses it
+	// rather than allocating fresh big.Int backing arrays, which is what keeps
+	// garbage collection out of the latency tail.
+	sc := amm.NewScratch()
+
 	for k := 1; k <= maxHops; k++ {
 		for i := 0; i < n; i++ {
 			if !t.seen[k-1][i] {
@@ -173,7 +179,7 @@ func (s *Snapshot) relax(src int, amountIn *big.Int, maxHops int) *relaxTable {
 			fromAddr := s.tokens[i].Address
 
 			for _, e := range s.adj[i] {
-				out, err := s.pools[e.pool].AmountOut(in, fromAddr)
+				out, err := s.pools[e.pool].AmountOutInto(sc, in, fromAddr)
 				if err != nil {
 					// A pool that cannot quote this size is not a reason to
 					// fail the request. Skip the edge and keep searching.
@@ -182,10 +188,17 @@ func (s *Snapshot) relax(src int, amountIn *big.Int, maxHops int) *relaxTable {
 				if out.Sign() <= 0 {
 					continue
 				}
+				// out points into the workspace, so compare before copying.
+				// Most candidates lose, and a loser costs no allocation.
 				if t.seen[k][e.to] && t.amount[k][e.to].Cmp(out) >= 0 {
 					continue
 				}
-				t.amount[k][e.to] = out
+
+				if t.seen[k][e.to] {
+					t.amount[k][e.to].Set(out)
+				} else {
+					t.amount[k][e.to] = new(big.Int).Set(out)
+				}
 				t.from[k][e.to] = e
 				t.seen[k][e.to] = true
 			}
