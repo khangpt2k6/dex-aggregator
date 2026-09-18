@@ -184,6 +184,35 @@ export function formatBps(bps: number): string {
   return `${(bps / 100).toFixed(2)}%`
 }
 
+const PPM = 1_000_000n
+
+/**
+ * Signed shortfall of `amount` against `reference`, in parts per million.
+ *
+ * The subtraction and the scaling both happen in BigInt, so comparing two
+ * 18-decimal outputs that differ in their last few digits still gives the right
+ * answer. Only the final ratio, which is a small bounded integer, becomes a
+ * number.
+ */
+export function relativePpm(amount: string, reference: string): number | null {
+  let value: bigint
+  let base: bigint
+  try {
+    value = toBigInt(amount)
+    base = toBigInt(reference)
+  } catch {
+    return null
+  }
+  if (base <= 0n) return null
+  return Number(((value - base) * PPM) / base)
+}
+
+/** Renders parts per million as a signed percentage, for example "-0.65%". */
+export function formatPpm(ppm: number): string {
+  const percent = ppm / 10_000
+  return `${percent > 0 ? '+' : ''}${percent.toFixed(2)}%`
+}
+
 /** Renders router time. Sub-millisecond readings stay in microseconds. */
 export function formatMicros(micros: number): string {
   // The Go timer on Windows has coarse resolution, so a fast search can come

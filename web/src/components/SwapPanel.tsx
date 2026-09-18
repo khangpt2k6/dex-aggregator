@@ -221,7 +221,7 @@ export function SwapPanel({
           </div>
         )}
 
-        <div>
+        <div className="swap-action">
           <button
             type="button"
             className="action"
@@ -232,9 +232,7 @@ export function SwapPanel({
             Quote only
           </button>
           <p className="action-note" id="action-note">
-            This aggregator reads pool state and returns a route. No wallet, no custody, no
-            transactions. Execution is out of scope for this project, so the button is inert on
-            purpose.
+            Read-only. No wallet, no execution.
           </p>
         </div>
       </div>

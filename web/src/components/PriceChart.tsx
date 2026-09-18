@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ColorType, CrosshairMode, LineSeries, LineStyle, createChart } from 'lightweight-charts'
 import type { IChartApi, ISeriesApi, LineData, UTCTimestamp } from 'lightweight-charts'
 
@@ -11,6 +11,16 @@ interface Props {
   points: PricePoint[]
   status: StreamStatus
 }
+
+/** Visible window per timeframe, in seconds. LIVE fits the whole session. */
+const TIMEFRAMES = [
+  { id: '1M', seconds: 60 },
+  { id: '5M', seconds: 300 },
+  { id: '15M', seconds: 900 },
+  { id: 'LIVE', seconds: 0 },
+] as const
+
+type TimeframeId = (typeof TIMEFRAMES)[number]['id']
 
 /** Decimal places that suit the magnitude being plotted. */
 function precisionFor(value: number): number {
@@ -27,8 +37,9 @@ function toLine(points: PricePoint[]): LineData<UTCTimestamp>[] {
  * Price line for the selected pair.
  *
  * Two series share one scale: a dim one for the locally seeded warm-up and the
- * accent one for ticks actually received from the stream. Drawing them the
- * same way would quietly claim the seeded section was observed.
+ * accent one for ticks actually received from the stream. Drawing them the same
+ * way would quietly claim the seeded section was observed, so the header
+ * carries a two-swatch legend instead of a caption.
  */
 export function PriceChart({ pairs, selected, onSelect, points, status }: Props) {
   const host = useRef<HTMLDivElement | null>(null)
@@ -36,6 +47,8 @@ export function PriceChart({ pairs, selected, onSelect, points, status }: Props)
   const seedSeries = useRef<ISeriesApi<'Line'> | null>(null)
   const liveSeries = useRef<ISeriesApi<'Line'> | null>(null)
   const fitted = useRef<string>('')
+
+  const [timeframe, setTimeframe] = useState<TimeframeId>('LIVE')
 
   const [base, quote] = useMemo(() => {
     const parts = selected.split('/')
@@ -69,13 +82,13 @@ export function PriceChart({ pairs, selected, onSelect, points, status }: Props)
       },
       rightPriceScale: {
         borderColor: '#232830',
-        scaleMargins: { top: 0.16, bottom: 0.12 },
+        scaleMargins: { top: 0.14, bottom: 0.1 },
       },
       timeScale: {
         borderColor: '#232830',
         timeVisible: true,
         secondsVisible: true,
-        rightOffset: 4,
+        rightOffset: 3,
       },
       crosshair: {
         mode: CrosshairMode.Normal,
@@ -139,39 +152,75 @@ export function PriceChart({ pairs, selected, onSelect, points, status }: Props)
     seed.setData(toLine(bridged))
     live.setData(toLine(livePoints))
 
-    if (fitted.current !== selected && points.length > 0) {
+    if (points.length === 0) return
+
+    const window = TIMEFRAMES.find((frame) => frame.id === timeframe)?.seconds ?? 0
+    const edge = points[points.length - 1]?.time
+
+    if (window > 0 && edge !== undefined) {
+      instance.timeScale().setVisibleRange({
+        from: (edge - window) as UTCTimestamp,
+        to: edge as UTCTimestamp,
+      })
+      return
+    }
+
+    if (fitted.current !== selected) {
       fitted.current = selected
       instance.timeScale().fitContent()
     }
-  }, [points, selected])
+  }, [points, selected, timeframe])
 
-  const priceText =
-    last === undefined ? '--' : last.value.toFixed(precisionFor(last.value))
+  const priceText = last === undefined ? '--' : last.value.toFixed(precisionFor(last.value))
 
   return (
     <section className="panel area-chart" aria-label="Price chart">
       <div className="panel-head">
         <h2 className="label label-lead">Price</h2>
 
-        <div className="hops-buttons" role="group" aria-label="Chart pair">
-          {pairs.map((pair) => (
+        <div className="token-select">
+          <select aria-label="Chart pair" value={selected} onChange={(event) => onSelect(event.target.value)}>
+            {(pairs.includes(selected) ? pairs : [selected, ...pairs]).map((pair) => (
+              <option key={pair} value={pair}>
+                {pair}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="hops-buttons" role="group" aria-label="Timeframe">
+          {TIMEFRAMES.map((frame) => (
             <button
-              key={pair}
+              key={frame.id}
               type="button"
-              aria-pressed={pair === selected}
-              onClick={() => onSelect(pair)}
+              aria-pressed={frame.id === timeframe}
+              onClick={() => {
+                setTimeframe(frame.id)
+                if (frame.seconds === 0) fitted.current = ''
+              }}
             >
-              {pair}
+              {frame.id}
             </button>
           ))}
         </div>
 
         <span className="spacer" />
 
+        <div className="legend" aria-hidden="true">
+          <span className="legend-item">
+            <span className="legend-swatch is-seeded" />
+            Seeded
+          </span>
+          <span className="legend-item">
+            <span className="legend-swatch is-live" />
+            Live
+          </span>
+        </div>
+
         <span className="chart-price mono">
           {priceText}
           <small>
-            {quote} per {base || 'token'}
+            {quote} / {base || 'token'}
           </small>
         </span>
 
@@ -192,12 +241,6 @@ export function PriceChart({ pairs, selected, onSelect, points, status }: Props)
           </p>
         )}
       </div>
-
-      <p className="chart-foot">
-        Accent line is ticks received over <span className="mono">/ws/prices</span> since this page
-        opened. The grey lead-in is a locally seeded warm-up: the aggregator keeps no price history,
-        so there is nothing real to draw before the first tick.
-      </p>
     </section>
   )
 }

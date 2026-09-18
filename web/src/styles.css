@@ -103,7 +103,7 @@ button {
   grid-template-columns: minmax(0, 1fr) 392px;
   grid-template-areas:
     'chart swap'
-    'route route'
+    'route swap'
     'foot foot';
   align-content: start;
 }
@@ -298,7 +298,7 @@ button {
   display: flex;
   align-items: baseline;
   gap: 14px;
-  padding: 10px var(--pad);
+  padding: 8px var(--pad);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   border-left: 3px solid var(--amber);
@@ -316,9 +316,8 @@ button {
 
 .banner-text {
   margin: 0;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text-mid);
-  max-width: 96ch;
 }
 
 .banner-text code {
@@ -348,11 +347,9 @@ button {
 }
 
 .chart-canvas {
-  /* Fills the pane. Row height is set by the taller swap column, so the
-     chart takes the remainder rather than leaving a dead band above the
-     caption. */
-  flex: 1 1 auto;
-  min-height: 300px;
+  /* Deliberately short. The chart is context, not the subject. */
+  flex: none;
+  height: 308px;
   width: 100%;
   min-width: 0;
   position: relative;
@@ -360,7 +357,7 @@ button {
 
 @media (max-width: 1080px) {
   .chart-canvas {
-    min-height: 260px;
+    height: 252px;
   }
 }
 
@@ -376,21 +373,51 @@ button {
   letter-spacing: 0.08em;
 }
 
-.chart-foot {
-  /* Pinned to the bottom of the pane like a terminal status line. */
-  margin-top: auto;
-  padding: 10px var(--pad) 14px;
-  font-family: var(--mono);
-  font-size: 11px;
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--text-dim);
-  border-top: 1px solid var(--line-faint);
-  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.legend-swatch {
+  width: 14px;
+  height: 2px;
+  display: block;
+  flex: none;
+}
+
+.legend-swatch.is-seeded {
+  background: #3a424e;
+}
+
+.legend-swatch.is-live {
+  background: var(--accent);
 }
 
 /* ----------------------------------------------------------------- swap -- */
 
 .swap {
   border-left: 1px solid var(--line);
+}
+
+.swap .panel-body {
+  flex: 1;
+}
+
+.swap-action {
+  margin-top: auto;
 }
 
 @media (max-width: 1080px) {
@@ -716,10 +743,12 @@ button {
 }
 
 .action-note {
-  margin: 10px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
+  margin: 9px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
   color: var(--text-dim);
+  text-align: center;
 }
 
 /* ---------------------------------------------------------------- notice -- */
@@ -758,16 +787,148 @@ button {
 
 /* ----------------------------------------------------------------- route -- */
 
-.route-summary {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  color: var(--text-mid);
-  letter-spacing: 0.01em;
+/* Stat chips: label over value, the same construction as the masthead
+   readouts, so the page has one way of stating a figure. */
+.chips {
+  display: flex;
+  border: 1px solid var(--line);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
-.route-summary strong {
-  color: var(--text);
+.chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 5px 13px;
+  border-right: 1px solid var(--line-faint);
+  flex: none;
+}
+
+.chip:last-child {
+  border-right: 0;
+}
+
+.chip-key {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.chip-val {
+  font-family: var(--mono);
+  font-size: 13px;
   font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------- route body/table -- */
+
+.route-body {
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.route-flow {
+  min-width: 0;
+}
+
+.route-compare {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.compare {
+  width: 100%;
+  max-width: 840px;
+  min-width: 460px;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12px;
+  transition: opacity 160ms linear;
+}
+
+.compare.is-stale {
+  opacity: 0.4;
+}
+
+.compare th {
+  font-family: var(--sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: left;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.compare td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-faint);
+  color: var(--text-mid);
+  white-space: nowrap;
+}
+
+.compare tbody th {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-mid);
+  border-bottom: 1px solid var(--line-faint);
+  padding: 8px 12px;
+  width: 1%;
+}
+
+.compare th.num,
+.compare td.num {
+  text-align: right;
+}
+
+.compare td.is-empty {
+  color: #4b5561;
+}
+
+.compare tbody tr.is-best th,
+.compare tbody tr.is-best td {
+  color: var(--text);
+  background: var(--accent-wash);
+}
+
+.compare tbody tr.is-best th {
+  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--accent);
+}
+
+.compare-path i {
+  color: #4b5561;
+  font-style: normal;
+  padding: 0 6px;
+}
+
+.best-tag {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
 }
 
 .impact-pill {
@@ -1027,29 +1188,22 @@ button {
 
 .colophon {
   background: var(--panel);
-  padding: 16px var(--pad) 22px;
+  padding: 9px var(--pad);
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.colophon p {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.55;
+  /* .panel sets a column direction; this strip is a single row of chips. */
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--text-dim);
-  max-width: 60ch;
 }
 
-.colophon a {
-  color: var(--text-mid);
-  text-decoration: none;
-  border-bottom: 1px solid var(--line-bright);
-}
-
-.colophon a:hover {
-  color: var(--accent);
-  border-bottom-color: var(--accent-deep);
+.colophon span {
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------ animation -- */

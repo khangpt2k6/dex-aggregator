@@ -23,3 +23,8 @@ web/dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# local screenshots / browser automation scratch
+.playwright-mcp/
+*.png
+!web/public/*.png

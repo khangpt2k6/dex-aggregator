@@ -179,19 +179,18 @@ export default function App() {
           indexedProtocols={protocolCount}
           maxHops={maxHops}
           onMaxHops={setMaxHops}
+          matrix={quoteState.matrix}
+          outSymbol={tokenOut}
           idleMessage={idleMessage}
         />
 
         <footer className="panel colophon area-foot">
-          <p>
-            Routing across Uniswap V3 concentrated liquidity and Sushiswap V2 constant product
-            pools. Every amount on this page is carried as a base-unit integer and formatted with
-            BigInt, never through a float.
-          </p>
-          <p>
-            Backend: Go, {status?.indexer.sourceNames.join(', ') ?? 'indexing'} source, refreshing
-            every {status ? Math.round(status.refreshEveryMs / 1000) : '--'}s.
-          </p>
+          <span>Uniswap V3</span>
+          <span>Sushiswap V2</span>
+          <span>Edges {status?.indexer.edges ?? '--'}</span>
+          <span>Refresh {status ? Math.round(status.refreshEveryMs / 1000) : '--'}s</span>
+          <span>Refreshes {status?.indexer.refreshes ?? '--'}</span>
+          <span>BigInt amounts</span>
         </footer>
       </div>
     </div>

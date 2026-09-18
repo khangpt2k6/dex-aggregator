@@ -1,0 +1,47 @@
+# Brings the whole thing up with no configuration and no API key.
+#
+#   docker compose up --build
+#
+# Then open http://localhost:3000. Pool state comes from the deterministic
+# simulator. To read real mainnet pools instead, set ETH_RPC_URL in the api
+# service below.
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      HTTP_ADDR: ":8080"
+      REDIS_URL: "redis://redis:6379/0"
+      REFRESH_INTERVAL: "6s"
+      MAX_HOPS: "3"
+      SIM_SEED: "1337"
+
+      # Uncomment to read live mainnet pools instead of simulated ones.
+      # ETH_RPC_URL: "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY"
+      RPC_WORKERS: "16"
+      RPC_RATE_PER_SEC: "10"
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
