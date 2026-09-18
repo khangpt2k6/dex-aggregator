@@ -1,0 +1,25 @@
+# local working notes, not project deliverables
+docs/superpowers/
+
+# go
+bin/
+*.exe
+*.test
+*.out
+coverage.*
+
+# node
+node_modules/
+web/dist/
+.vite/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
