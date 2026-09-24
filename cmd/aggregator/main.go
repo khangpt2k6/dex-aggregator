@@ -56,7 +56,7 @@ func run(log *slog.Logger) error {
 		defer func() { _ = closer.Close() }()
 	}
 
-	sources, err := buildSources(cfg, log)
+	sources, rpcPool, err := buildSources(cfg, log)
 	if err != nil {
 		return err
 	}
@@ -86,6 +86,15 @@ func run(log *slog.Logger) error {
 	}
 
 	srv := api.New(holder, ix, cfg).WithLogger(log)
+
+	// In live mode, make the worker pool visible on the status endpoint. It is
+	// the most likely reason for quotes to go stale, so being able to see the
+	// breaker and the retry count from outside is worth the one wire.
+	if rpcPool != nil {
+		srv = srv.WithRPCStats(func() (rpc.PoolStats, rpc.State) {
+			return rpcPool.Stats(), rpcPool.BreakerState()
+		})
+	}
 
 	go ix.Run(ctx)
 	go srv.Hub().Run(ctx, priceTickInterval)
@@ -131,10 +140,11 @@ func run(log *slog.Logger) error {
 //
 // This is the only place in the program that knows the difference. Everything
 // downstream sees dex.PoolSource and behaves identically either way.
-func buildSources(cfg *config.Config, log *slog.Logger) ([]dex.PoolSource, error) {
+// The returned pool is nil in simulated mode, where there is no provider.
+func buildSources(cfg *config.Config, log *slog.Logger) ([]dex.PoolSource, *rpc.Pool, error) {
 	if !cfg.LiveMode() {
 		log.Info("no ETH_RPC_URL set, using deterministic simulated pools", "seed", cfg.SimSeed)
-		return []dex.PoolSource{sim.New(cfg.SimSeed)}, nil
+		return []dex.PoolSource{sim.New(cfg.SimSeed)}, nil, nil
 	}
 
 	transport := rpc.NewHTTPTransport(cfg.ETHRPCURL, 15*time.Second)
@@ -162,7 +172,7 @@ func buildSources(cfg *config.Config, log *slog.Logger) ([]dex.PoolSource, error
 	return []dex.PoolSource{
 		onchain.NewUniswapV3(mc, tokens, onchain.DefaultV3FeeTiers),
 		onchain.NewSushiswapV2(mc, tokens),
-	}, nil
+	}, pool, nil
 }
 
 // openStore connects to Redis if configured, and degrades to no persistence if

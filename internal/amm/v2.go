@@ -69,19 +69,10 @@ func SwapV2Into(sc *Scratch, in *big.Int, p V2Pool) (*big.Int, error) {
 	return sc.out, nil
 }
 
-// SpotPriceV2 returns the marginal exchange rate at zero trade size, scaled by
-// 1e18 to keep it an integer.
+// There is deliberately no SpotPrice function here.
 //
-// This is the number a naive router would use as an edge weight. It is exposed
-// only so that price impact can be reported as the gap between the marginal
-// rate and the realised rate. It must not be used to choose a route.
-func SpotPriceV2(p V2Pool) (*big.Int, error) {
-	if !isPositive(p.ReserveIn) || !isPositive(p.ReserveOut) {
-		return nil, ErrInsufficientLiquidity
-	}
-	scaled := new(big.Int).Mul(p.ReserveOut, scale1e18)
-	return scaled.Div(scaled, p.ReserveIn), nil
-}
-
-// scale1e18 is the fixed-point scale used for reported prices.
-var scale1e18 = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+// Spot price is the marginal rate at zero size, and exposing it would invite
+// exactly the mistake this package exists to avoid: weighting a routing edge by
+// a price that ignores trade size. Price impact is reported by re-pricing the
+// chosen path at a small probe amount, in internal/graph, which measures the
+// same thing without handing out a number that is wrong to route on.

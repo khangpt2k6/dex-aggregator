@@ -165,6 +165,21 @@ func probeSize(t dex.Token) *big.Int {
 	return new(big.Int).Mul(big.NewInt(n), pow10(int(t.Decimals)))
 }
 
+// RPCStatus reports how the worker pool is getting on with the provider.
+//
+// This is the part of the service most likely to be the reason quotes have gone
+// stale, so it is worth being able to see from outside: a rising Rejected count
+// with an open breaker says the provider is refusing traffic, while a rising
+// Retried count with a closed breaker says it is merely throttling.
+type RPCStatus struct {
+	InFlight     int64  `json:"inFlight"`
+	Completed    int64  `json:"completed"`
+	Failed       int64  `json:"failed"`
+	Retried      int64  `json:"retried"`
+	Rejected     int64  `json:"rejected"`
+	BreakerState string `json:"breakerState"`
+}
+
 // StatusResponse describes what the service is currently serving.
 type StatusResponse struct {
 	Indexer        indexer.Status `json:"indexer"`
@@ -172,16 +187,36 @@ type StatusResponse struct {
 	RefreshEveryMs int64          `json:"refreshEveryMs"`
 	MaxHops        int            `json:"maxHops"`
 	Mode           string         `json:"mode"`
+	WSClients      int            `json:"wsClients"`
+
+	// RPC is absent in simulated mode, where there is no provider to report on.
+	// Reporting a row of zeroes instead would look like a healthy idle pool.
+	RPC *RPCStatus `json:"rpc,omitempty"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, StatusResponse{
+	resp := StatusResponse{
 		Indexer:        s.indexer.Status(),
 		SnapshotAgeMs:  s.holder.Age().Milliseconds(),
 		RefreshEveryMs: s.indexer.Interval().Milliseconds(),
 		MaxHops:        s.cfg.MaxHops,
 		Mode:           s.mode(),
-	})
+		WSClients:      s.hub.ClientCount(),
+	}
+
+	if s.rpcStats != nil {
+		stats, breaker := s.rpcStats()
+		resp.RPC = &RPCStatus{
+			InFlight:     stats.InFlight,
+			Completed:    stats.Completed,
+			Failed:       stats.Failed,
+			Retried:      stats.Retried,
+			Rejected:     stats.Rejected,
+			BreakerState: string(breaker),
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) mode() string {

@@ -18,16 +18,25 @@ import (
 	"github.com/khangpt2k6/dex-aggregator/internal/cache"
 	"github.com/khangpt2k6/dex-aggregator/internal/config"
 	"github.com/khangpt2k6/dex-aggregator/internal/indexer"
+	"github.com/khangpt2k6/dex-aggregator/internal/rpc"
 )
+
+// RPCStatsFunc reports worker pool counters and breaker state.
+//
+// It is a function rather than a dependency on *rpc.Pool so that the api
+// package stays unaware of how pool state is fetched, and so that simulated
+// mode can simply not provide one.
+type RPCStatsFunc func() (rpc.PoolStats, rpc.State)
 
 // Server wires handlers to the snapshot holder and the indexer.
 type Server struct {
-	holder  *cache.Holder
-	indexer *indexer.Indexer
-	cfg     *config.Config
-	log     *slog.Logger
-	metrics *metrics
-	hub     *hub
+	holder   *cache.Holder
+	indexer  *indexer.Indexer
+	cfg      *config.Config
+	log      *slog.Logger
+	metrics  *metrics
+	hub      *hub
+	rpcStats RPCStatsFunc
 }
 
 // New returns a server. Call Handler for something to pass to http.Server.
@@ -47,6 +56,13 @@ func (s *Server) WithLogger(l *slog.Logger) *Server {
 	if l != nil {
 		s.log = l
 	}
+	return s
+}
+
+// WithRPCStats makes worker pool state visible on the status endpoint. Leave it
+// unset in simulated mode, where there is no provider to report on.
+func (s *Server) WithRPCStats(f RPCStatsFunc) *Server {
+	s.rpcStats = f
 	return s
 }
 

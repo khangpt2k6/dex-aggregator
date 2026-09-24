@@ -15,6 +15,7 @@ import (
 	"github.com/khangpt2k6/dex-aggregator/internal/dex"
 	"github.com/khangpt2k6/dex-aggregator/internal/dex/sim"
 	"github.com/khangpt2k6/dex-aggregator/internal/indexer"
+	"github.com/khangpt2k6/dex-aggregator/internal/rpc"
 )
 
 func newTestServer(t *testing.T) http.Handler {
@@ -414,5 +415,67 @@ func TestQuoteReportsRouterTime(t *testing.T) {
 	}
 	if q.RouterMicros > 100_000 {
 		t.Errorf("RouterMicros = %d (over 100ms), far outside the budget", q.RouterMicros)
+	}
+}
+
+// The worker pool is the part of this service most worth watching in
+// production, and it was previously only reachable from its own tests. Status
+// must surface it when the service is running against a real node.
+func TestStatusReportsRPCPoolWhenLive(t *testing.T) {
+	cfg := &config.Config{MaxHops: 3, ETHRPCURL: "https://example.invalid"}
+	h := cache.NewHolder()
+	ix := indexer.New([]dex.PoolSource{sim.New(1)}, h, cache.NewNoopStore(), time.Minute)
+	if err := ix.RefreshOnce(context.Background()); err != nil {
+		t.Fatalf("RefreshOnce: %v", err)
+	}
+
+	srv := New(h, ix, cfg).WithRPCStats(func() (rpc.PoolStats, rpc.State) {
+		return rpc.PoolStats{Completed: 42, Retried: 7, Rejected: 1}, rpc.StateHalfOpen
+	})
+
+	rec := get(t, srv.Handler(), "/api/v1/status")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+
+	resp := decode[StatusResponse](t, rec)
+	if resp.RPC == nil {
+		t.Fatal("RPC is nil in live mode, want pool stats")
+	}
+	if resp.RPC.Completed != 42 || resp.RPC.Retried != 7 || resp.RPC.Rejected != 1 {
+		t.Errorf("RPC stats = %+v, want completed 42, retried 7, rejected 1", resp.RPC)
+	}
+	if resp.RPC.BreakerState != string(rpc.StateHalfOpen) {
+		t.Errorf("BreakerState = %q, want %q", resp.RPC.BreakerState, rpc.StateHalfOpen)
+	}
+}
+
+// In simulated mode there is no RPC pool, so the field must be absent rather
+// than reporting a row of zeroes that looks like a healthy idle provider.
+func TestStatusOmitsRPCWhenSimulated(t *testing.T) {
+	rec := get(t, newTestServer(t), "/api/v1/status")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if resp := decode[StatusResponse](t, rec); resp.RPC != nil {
+		t.Errorf("RPC = %+v in simulated mode, want nil", resp.RPC)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, present := raw["rpc"]; present {
+		t.Error("rpc key is present in simulated mode, want it omitted")
+	}
+}
+
+func TestStatusReportsWebsocketClientCount(t *testing.T) {
+	rec := get(t, newTestServer(t), "/api/v1/status")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if got := decode[StatusResponse](t, rec).WSClients; got != 0 {
+		t.Errorf("WSClients = %d with nothing connected, want 0", got)
 	}
 }
