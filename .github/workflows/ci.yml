@@ -24,8 +24,13 @@ jobs:
 
       # The router latency budget is a build gate, not a README claim.
       # This step fails the build if p99 regresses past 10ms.
+      #
+      # It must run without -race. The detector instruments every memory access
+      # and inflates p99 by more than tenfold, so the budget is only meaningful
+      # against an uninstrumented binary. The test skips its own assertion when
+      # built with -race, which is why this separate step is the one that counts.
       - name: router latency gate
-        run: go test ./internal/graph/ -run TestRouterLatencyBudget -v
+        run: go test -count=1 ./internal/graph/ -run TestRouterLatencyBudget -v
 
   web:
     runs-on: ubuntu-latest

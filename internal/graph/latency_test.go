@@ -89,6 +89,16 @@ func TestRouterLatencyBudget(t *testing.T) {
 	t.Logf("router latency over %d queries (%d routed): p50=%v p95=%v p99=%v max=%v",
 		len(durations), routed, p50, p95, p99, worst)
 
+	// Running the queries above is worth doing under the race detector, since
+	// it exercises the router hard. Asserting a latency budget there is not:
+	// the detector instruments every memory access and inflates p99 by more
+	// than tenfold, so the assertion would be measuring instrumentation rather
+	// than code, and would pass or fail on how fast the runner happens to be.
+	// The authoritative measurement is the separate non-race CI step.
+	if raceDetectorEnabled {
+		t.Skipf("budget not asserted under -race (measured p99=%v, roughly 10x inflated); see the dedicated latency gate", p99)
+	}
+
 	if p99 > latencyBudget {
 		t.Errorf("router p99 = %v, want at most %v (p50=%v p95=%v max=%v)", p99, latencyBudget, p50, p95, worst)
 	}
